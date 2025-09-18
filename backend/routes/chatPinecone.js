@@ -20,6 +20,71 @@ async function generateEmbedding(text) {
   return embedding;
 }
 
+// 🚀 NEW: Generate AI response using retrieved context
+async function generateAIResponse(query, contextChunks) {
+  try {
+    // Try different models in order of preference
+    const models = [
+      "gemini-1.5-flash-8b",
+      "gemini-1.5-pro", 
+      "gemini-pro"
+    ];
+
+    let aiResponse;
+    let modelUsed;
+
+    for (const modelName of models) {
+      try {
+        console.log(`🔄 Trying model: ${modelName}`);
+        const model = genAI.getGenerativeModel({ model: modelName });
+
+        // Prepare context from retrieved chunks
+        const context = contextChunks
+          .map((chunk, idx) => `[Source ${idx + 1}]: ${chunk.metadata.text}`)
+          .join('\n\n');
+
+        // Create a detailed prompt for better responses
+        const prompt = `You are a helpful AI assistant that answers questions based on provided context from PDF documents.
+
+CONTEXT FROM DOCUMENTS:
+${context}
+
+USER QUESTION: ${query}
+
+INSTRUCTIONS:
+- Answer the question using ONLY the information provided in the context above
+- Be conversational and natural in your response
+- If the context contains the answer, provide a clear and helpful response
+- If the context doesn't contain enough information to answer the question, say so politely
+- Mention which source(s) you're referencing when relevant
+- Keep your response concise but informative
+
+ANSWER:`;
+
+        const result = await model.generateContent(prompt);
+        aiResponse = result.response.text();
+        modelUsed = modelName;
+        break; // Success, exit the loop
+
+      } catch (modelError) {
+        console.log(`❌ ${modelName} failed: ${modelError.message}`);
+        continue; // Try next model
+      }
+    }
+
+    if (!aiResponse) {
+      throw new Error('All Gemini models are currently unavailable');
+    }
+    
+    console.log(`🤖 Generated AI response using ${modelUsed}: ${aiResponse.substring(0, 100)}...`);
+    return aiResponse;
+
+  } catch (error) {
+    console.error('❌ Error generating AI response:', error);
+    throw error;
+  }
+}
+
 // 🚀 QUERY EXPANSION - Generate multiple search variations
 function expandQuery(query) {
   const originalQuery = query.toLowerCase().trim();
@@ -86,46 +151,6 @@ function reRankResults(query, matches) {
   }).sort((a, b) => b.adjustedScore - a.adjustedScore);
 }
 
-// 🚀 CONTEXT COMBINATION - Combine multiple relevant chunks
-function combineContext(rankedMatches, maxContext = 3) {
-  if (rankedMatches.length === 0) return null;
-  
-  // Get top matches that are above threshold
-  const relevantMatches = rankedMatches.filter(match => match.adjustedScore > 0.3);
-  
-  if (relevantMatches.length === 0) {
-    return {
-      answer: rankedMatches[0].metadata.text,
-      confidence: rankedMatches[0].adjustedScore,
-      sources: [rankedMatches[0].metadata.source],
-      type: 'single_low_confidence'
-    };
-  }
-  
-  if (relevantMatches.length === 1) {
-    return {
-      answer: relevantMatches[0].metadata.text,
-      confidence: relevantMatches[0].adjustedScore,
-      sources: [relevantMatches[0].metadata.source],
-      type: 'single_match'
-    };
-  }
-  
-  // Combine multiple relevant chunks
-  const topMatches = relevantMatches.slice(0, maxContext);
-  const combinedText = topMatches
-    .map((match, idx) => `[Context ${idx + 1}]: ${match.metadata.text}`)
-    .join('\n\n');
-  
-  return {
-    answer: combinedText,
-    confidence: topMatches[0].adjustedScore,
-    sources: [...new Set(topMatches.map(m => m.metadata.source))],
-    type: 'multi_context',
-    match_count: topMatches.length
-  };
-}
-
 // POST /api/chat-pinecone
 router.post("/", async (req, res) => {
   try {
@@ -155,7 +180,7 @@ router.post("/", async (req, res) => {
           vector: queryEmbedding,
           topK: 10,
           includeMetadata: true,
-          filter: searchFilter // 🚨 Apply PDF filter here
+          filter: searchFilter
         });
 
         allMatches.push(...queryResponse.matches);
@@ -195,15 +220,42 @@ router.post("/", async (req, res) => {
       console.log(`   Text: ${match.metadata.text.substring(0, 100)}...`);
     });
 
-    // 🚀 Intelligent context combination
-    const result = combineContext(rerankedMatches, 3);
+    // 🚀 Get top relevant chunks for AI processing
+    const topRelevantChunks = rerankedMatches
+      .filter(match => match.adjustedScore > 0.3)
+      .slice(0, 3); // Use top 3 most relevant chunks
+
+    if (topRelevantChunks.length === 0) {
+      return res.json({
+        answer: "I found some information but it doesn't seem very relevant to your question. Try rephrasing your query.",
+        confidence: rerankedMatches[0]?.adjustedScore || 0,
+        type: 'low_relevance',
+        searched_in: searchScope
+      });
+    }
+
+    // 🚀 Generate AI response using the retrieved context
+    console.log('🤖 Generating AI response...');
+    let aiResponse;
+    let responseType = 'ai_generated';
+
+    try {
+      aiResponse = await generateAIResponse(query, topRelevantChunks);
+    } catch (aiError) {
+      console.log('⚠️ AI generation failed, falling back to context summary');
+      // Fallback: Return a structured context summary
+      aiResponse = `Based on your documents, here's what I found:\n\n${topRelevantChunks
+        .map((chunk, idx) => `**Source ${idx + 1}:** ${chunk.metadata.text.substring(0, 300)}...`)
+        .join('\n\n')}`;
+      responseType = 'context_fallback';
+    }
 
     res.json({
-      answer: result.answer,
-      confidence: result.confidence,
-      sources: result.sources,
-      type: result.type,
-      match_count: result.match_count || 1,
+      answer: aiResponse,
+      confidence: topRelevantChunks[0].adjustedScore,
+      sources: [...new Set(topRelevantChunks.map(m => m.metadata.source))],
+      type: responseType,
+      context_chunks_used: topRelevantChunks.length,
       searched_in: searchScope,
       debug: {
         total_matches: uniqueMatches.length,
@@ -219,7 +271,7 @@ router.post("/", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ Error querying Pinecone:", err);
+    console.error("❌ Error in chat:", err);
     res.status(500).json({ error: err.message });
   }
 });
