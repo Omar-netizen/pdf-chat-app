@@ -113,7 +113,8 @@ An intelligent chatbot that allows users to upload PDF documents and ask questio
 - **Confidence Scoring**: Displays answer reliability metrics
   
 ### Screenshot 
-<img width="1547" height="937" alt="image" src="https://github.com/user-attachments/assets/c2eb5eeb-50a7-439b-9ad3-a7b22820b5dc" />
+<img width="1043" height="897" alt="image" src="https://github.com/user-attachments/assets/35b67990-9f1d-43d0-b06a-bae1939b3741" />
+
 
 
 ## 🔮 Upcoming Features
