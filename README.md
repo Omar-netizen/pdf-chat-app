@@ -28,15 +28,15 @@ React.js
 
 Axios
 
-Tailwind CSS (optional, if you added it)
+Tailwind CSS
 
 Backend:
 
 Node.js + Express
 
-LangChain (or similar for embeddings + LLM)
+gemini-embedding-001
 
-Pinecone / FAISS / In-memory Vector Store
+Pinecone
 
 Multer (for file uploads)
 
@@ -56,10 +56,9 @@ cd backend
 npm install
 
 
-Create a .env file in the backend/ folder:
+Create a .env file in the backend/ 
 
-PORT=5000
-OPENAI_API_KEY=your_openai_api_key
+GEMINI_API_KEY="YOUR_ACTUAL_GEMINI_API_ KEY_HERE"
 
 
 Run backend:
