@@ -4,6 +4,7 @@ const multer = require("multer");
 const pdfParse = require("pdf-parse");
 const { initPinecone } = require("../pinecone");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { protect } = require("../middleware/auth"); // 🚀 Import auth middleware
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -117,10 +118,10 @@ function detectContentType(text) {
   return 'general';
 }
 
+//======================
+// Enhanced Upload PDF route - 🚀 NOW PROTECTED WITH AUTH
 // ======================
-// Enhanced Upload PDF route
-// ======================
-router.post("/", upload.single("file"), async (req, res) => {
+router.post("/", protect, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "PDF file required" });
@@ -174,6 +175,8 @@ router.post("/", upload.single("file"), async (req, res) => {
               text: chunkData.text,
               source: req.file.originalname,
               source_type: 'pdf',
+              user_id: req.user.id, // 🚀 ADD USER ID HERE
+              user_email: req.user.email, // 🚀 ADD USER EMAIL FOR REFERENCE
               chunk_index: chunkIndex,
               total_chunks: chunks.length,
               content_type: contentType,
@@ -203,12 +206,13 @@ router.post("/", upload.single("file"), async (req, res) => {
 
     res.json({
       success: true,
-      message: "PDF uploaded and indexed successfully with enhanced metadata!",
+      message: `PDF uploaded and indexed successfully for ${req.user.name}!`,
       filename: req.file.originalname,
       chunks_created: chunks.length,
       chunks_uploaded: totalUploaded,
       totalCharacters: fullText.length,
-      fileSize: req.file.size
+      fileSize: req.file.size,
+      user: req.user.name
     });
 
   } catch (err) {

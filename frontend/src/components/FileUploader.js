@@ -1,11 +1,14 @@
 // src/components/FileUploader.js
 import React, { useState } from "react";
 import { uploadPdf } from "../api";
+import { useAuth } from "../context/AuthContext"; // 🚀 Import auth context
 
 export default function FileUploader() {
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState(null);
   const [uploading, setUploading] = useState(false);
+  
+  const { user } = useAuth(); // 🚀 Get user info
 
   const handleFileChange = (e) => {
     setFile(e.target.files[0]);
@@ -62,7 +65,12 @@ export default function FileUploader() {
 
   return (
     <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 shadow-lg">
-      <h2 className="text-lg font-semibold mb-4 text-white">Upload PDF</h2>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-semibold text-white">📄 Upload PDF</h2>
+        <div className="text-sm text-gray-300">
+          👤 {user?.name}'s Library
+        </div>
+      </div>
       
       <div className="space-y-4">
         <div className="flex items-center gap-4">
@@ -91,7 +99,7 @@ export default function FileUploader() {
               📄 Selected: <span className="text-white font-medium">{file.name}</span>
             </div>
             <div className="text-xs text-gray-400 mt-1">
-              Size: {(file.size / 1024 / 1024).toFixed(2)} MB
+              Size: {(file.size / 1024 / 1024).toFixed(2)} MB • Will be added to {user?.name}'s library
             </div>
           </div>
         )}
@@ -117,7 +125,7 @@ export default function FileUploader() {
                   <div>📏 File size: {(status.details.fileSize / 1024 / 1024).toFixed(2)} MB</div>
                 )}
                 <div className="text-blue-200 mt-2">
-                  💡 You can now ask questions about this PDF in the chat below!
+                  💡 Perfect! You can now ask questions about this PDF in your personal chat below!
                 </div>
               </div>
             )}

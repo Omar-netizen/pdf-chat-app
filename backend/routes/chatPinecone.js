@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 const { initPinecone } = require("../pinecone");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { protect } = require("../middleware/auth"); // 🚀 Import auth middleware
 
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -151,15 +152,15 @@ function reRankResults(query, matches) {
   }).sort((a, b) => b.adjustedScore - a.adjustedScore);
 }
 
-// POST /api/chat-pinecone
-router.post("/", async (req, res) => {
+// POST /api/chat-pinecone - 🚀 NOW PROTECTED WITH AUTH
+router.post("/", protect, async (req, res) => {
   try {
     const { query, source_filter } = req.body;
     if (!query) return res.status(400).json({ error: "Query required" });
 
     // 🚀 PDF-specific search capability
-    const searchScope = source_filter ? `PDF: ${source_filter}` : 'All documents';
-    console.log(`🔍 Searching in ${searchScope} for: "${query}"`);
+    const searchScope = source_filter ? `PDF: ${source_filter}` : `All your documents`;
+    console.log(`🔍 User ${req.user.email} searching in ${searchScope} for: "${query}"`);
 
     // 🚀 Query expansion for better matching
     const expandedQueries = expandQuery(query);
@@ -168,8 +169,11 @@ router.post("/", async (req, res) => {
     const index = await initPinecone();
     let allMatches = [];
 
-    // 🚀 Build filter for PDF-specific search
-    const searchFilter = source_filter ? { source: source_filter } : undefined;
+    // 🚀 Build filter for USER-SPECIFIC + PDF-specific search
+    const searchFilter = { 
+      user_id: req.user.id, // 🚀 ALWAYS FILTER BY USER
+      ...(source_filter && { source: source_filter })
+    };
     
     // Search with multiple query variations
     for (const expandedQuery of expandedQueries.slice(0, 2)) {
@@ -199,14 +203,15 @@ router.post("/", async (req, res) => {
 
     if (uniqueMatches.length === 0) {
       const noResultsMessage = source_filter 
-        ? `I don't have any information about "${query}" in the PDF "${source_filter}". Make sure the PDF is uploaded and the filename is correct.`
-        : "I don't have any information about that topic yet. Try uploading relevant documents first.";
+        ? `I don't have any information about "${query}" in your PDF "${source_filter}". Make sure you've uploaded this PDF to your account.`
+        : "You haven't uploaded any documents yet, or I don't have information about that topic in your uploaded PDFs.";
         
       return res.json({ 
         answer: noResultsMessage,
         confidence: 0,
         type: 'no_matches',
-        searched_in: searchScope
+        searched_in: searchScope,
+        user: req.user.name
       });
     }
 

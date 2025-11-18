@@ -2,49 +2,51 @@
 const express = require("express");
 const router = express.Router();
 const { initPinecone } = require("../pinecone");
+const { protect } = require("../middleware/auth"); // 🚀 Import auth middleware
 
-// GET /api/get-uploaded-pdfs
-router.get("/", async (req, res) => {
+// GET /api/get-uploaded-pdfs - 🚀 NOW PROTECTED WITH AUTH
+router.get("/", protect, async (req, res) => {
   try {
-    console.log("📋 Fetching list of uploaded PDFs...");
+    console.log(`📋 Fetching PDFs for user: ${req.user.email}`);
     
     const index = await initPinecone();
     
-    // Get index stats to see all namespaces and data
-    const stats = await index.describeIndexStats();
-    
-    // Query for all vectors to get unique sources
-    // We'll get a sample of vectors and extract unique PDF sources
+    // Query for vectors with PDF metadata FOR THIS USER ONLY
     const queryResponse = await index.query({
-      vector: new Array(768).fill(0), // Dummy vector to get all results
-      topK: 1000, // Get many results to find all PDFs
-      includeMetadata: true
-    });
-
-    // Extract unique PDF sources
-    const pdfSources = new Set();
-    
-    queryResponse.matches.forEach(match => {
-      if (match.metadata && match.metadata.source && match.metadata.source_type === 'pdf') {
-        pdfSources.add(match.metadata.source);
+      vector: new Array(768).fill(0.1),
+      topK: 10000,
+      includeMetadata: true,
+      filter: { 
+        source_type: "pdf",
+        user_id: req.user.id // 🚀 FILTER BY USER ID
       }
     });
 
-    // Convert to array and add upload info
-    const pdfs = Array.from(pdfSources).map(filename => {
-      // Find a sample chunk to get upload info
-      const sampleChunk = queryResponse.matches.find(
-        match => match.metadata.source === filename
-      );
-      
-      return {
-        filename: filename,
-        upload_date: sampleChunk?.metadata.upload_date || null,
-        total_chunks: queryResponse.matches.filter(
-          match => match.metadata.source === filename
-        ).length
-      };
+    console.log(`📊 Found ${queryResponse.matches.length} PDF chunks for user ${req.user.email}`);
+
+    // Extract unique PDF sources
+    const pdfMap = new Map();
+    
+    queryResponse.matches.forEach(match => {
+      if (match.metadata && match.metadata.source) {
+        const filename = match.metadata.source;
+        
+        if (!pdfMap.has(filename)) {
+          pdfMap.set(filename, {
+            filename: filename,
+            upload_date: match.metadata.upload_date || null,
+            total_chunks: 0,
+            file_size: match.metadata.file_size || null
+          });
+        }
+        
+        // Increment chunk count
+        pdfMap.get(filename).total_chunks += 1;
+      }
     });
+
+    // Convert to array
+    const pdfs = Array.from(pdfMap.values());
 
     // Sort by upload date (newest first)
     pdfs.sort((a, b) => {
@@ -53,13 +55,14 @@ router.get("/", async (req, res) => {
       return new Date(b.upload_date) - new Date(a.upload_date);
     });
 
-    console.log(`📋 Found ${pdfs.length} uploaded PDFs`);
+    console.log(`📋 Found ${pdfs.length} unique PDFs for ${req.user.email}:`, pdfs.map(p => p.filename));
 
     res.json({
       success: true,
       pdfs: pdfs,
       total_pdfs: pdfs.length,
-      total_vectors: stats.totalRecordCount || 0
+      total_chunks: queryResponse.matches.length,
+      user: req.user.name
     });
 
   } catch (err) {

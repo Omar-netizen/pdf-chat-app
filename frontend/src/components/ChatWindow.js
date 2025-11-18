@@ -1,8 +1,7 @@
 // src/components/ChatWindow.js
 import React, { useEffect, useRef, useState } from "react";
-import { sendQuery, getUploadedPdfs } from "../api"; // Import getUploadedPdfs
-
-
+import { sendQuery, getUploadedPdfs } from "../api";
+import { useAuth } from "../context/AuthContext"; // 🚀 Import auth context
 
 export default function ChatWindow() {
   const [messages, setMessages] = useState([]);
@@ -12,6 +11,8 @@ export default function ChatWindow() {
   const [selectedPdf, setSelectedPdf] = useState("all");
   const [loadingPdfs, setLoadingPdfs] = useState(true);
   const listRef = useRef(null);
+  
+  const { user } = useAuth(); // 🚀 Get user info
 
   // Fetch uploaded PDFs on component mount
   useEffect(() => {
@@ -118,7 +119,12 @@ export default function ChatWindow() {
 
   return (
     <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 shadow-lg">
-      <h2 className="text-lg font-semibold mb-4 text-white">Chat with your PDFs</h2>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-semibold text-white">💬 Chat with your PDFs</h2>
+        <div className="text-sm text-gray-300">
+          👤 {user?.name}
+        </div>
+      </div>
 
       {/* PDF Selection Dropdown */}
       <div className="mb-4">
@@ -131,7 +137,7 @@ export default function ChatWindow() {
           disabled={loadingPdfs}
           className="w-full p-3 border border-white/20 rounded-lg bg-white/90 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
         >
-          <option value="all">🌐 All Documents ({pdfs.length} PDFs)</option>
+          <option value="all">🌐 All Your Documents ({pdfs.length} PDFs)</option>
           {pdfs.map((pdf, index) => (
             <option key={index} value={pdf.filename}>
               📄 {pdf.filename} ({pdf.total_chunks} chunks)
@@ -149,7 +155,7 @@ export default function ChatWindow() {
         
         {selectedPdf !== "all" && (
           <div className="text-xs text-blue-200 mt-1">
-            🎯 Searching only in: {selectedPdf}
+            🎯 Searching only in: {selectedPdf} (from your library)
           </div>
         )}
       </div>
@@ -161,8 +167,8 @@ export default function ChatWindow() {
         {messages.length === 0 && (
           <div className="text-gray-400 text-center py-8">
             {pdfs.length > 0 
-              ? `Ask something about your ${pdfs.length} uploaded PDF${pdfs.length > 1 ? 's' : ''}...`
-              : "Upload some PDFs first, then ask questions about them..."
+              ? `Hi ${user?.name}! Ask something about your ${pdfs.length} uploaded PDF${pdfs.length > 1 ? 's' : ''}...`
+              : `Hi ${user?.name}! Upload some PDFs first, then ask questions about them...`
             }
           </div>
         )}
@@ -205,7 +211,7 @@ export default function ChatWindow() {
                 </div>
                 <span className="text-gray-600 text-sm">
                   {selectedPdf === "all" 
-                    ? "Searching all documents..." 
+                    ? `Searching your ${pdfs.length} documents...` 
                     : `Searching ${selectedPdf}...`
                   }
                 </span>
