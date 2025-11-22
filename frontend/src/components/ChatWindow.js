@@ -1,28 +1,30 @@
 // src/components/ChatWindow.js
 import React, { useEffect, useRef, useState } from "react";
 import { sendQuery, getUploadedPdfs } from "../api";
-import { useAuth } from "../context/AuthContext"; // 🚀 Import auth context
+import { useAuth } from "../context/AuthContext";
 
 export default function ChatWindow() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [pdfs, setPdfs] = useState([]);
-  const [selectedPdfs, setSelectedPdfs] = useState([]); // 🚀 Changed to array for multi-select
+  const [selectedPdfs, setSelectedPdfs] = useState([]);
   const [loadingPdfs, setLoadingPdfs] = useState(true);
+  
+  // 🚀 Missing state variables - ADDED
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [conversationTitle, setConversationTitle] = useState("New Conversation");
   const [compareMode, setCompareMode] = useState(false);
   const [crossRefMode, setCrossRefMode] = useState(false);
   const [showCitations, setShowCitations] = useState(false);
-  const listRef = useRef(null);
   
-  const { user } = useAuth(); // 🚀 Get user info
+  const listRef = useRef(null);
+  const { user } = useAuth();
 
   // Fetch uploaded PDFs on component mount
   useEffect(() => {
     fetchUploadedPdfs();
-    createNewConversation(); // 🚀 Create initial conversation
+    createNewConversation();
   }, []);
 
   useEffect(() => {
@@ -138,7 +140,6 @@ export default function ChatWindow() {
       setLoadingPdfs(true);
       console.log('🔍 Fetching uploaded PDFs...');
       
-      // Use the API helper function
       const response = await getUploadedPdfs();
       console.log('📡 Response received:', response.status);
       
@@ -169,13 +170,11 @@ export default function ChatWindow() {
     setLoading(true);
 
     try {
-      // Prepare query with optional multi-PDF filter
       const queryData = { 
         query: trimmed,
-        compare_mode: compareMode // 🚀 Include compare mode flag
+        compare_mode: compareMode
       };
       
-      // Handle multiple PDF selection
       if (selectedPdfs.length > 0) {
         queryData.source_filters = selectedPdfs;
       }
@@ -185,7 +184,7 @@ export default function ChatWindow() {
       const confidence = res.data?.confidence;
       const sources = res.data?.sources;
       const searchedIn = res.data?.searched_in;
-      const comparison = res.data?.comparison; // 🚀 Comparison data
+      const comparison = res.data?.comparison;
       
       const botMsg = { 
         sender: "bot", 
@@ -193,9 +192,13 @@ export default function ChatWindow() {
         confidence,
         sources,
         searchedIn,
-        comparison // 🚀 Include comparison data
+        comparison
       };
       setMessages((m) => [...m, botMsg]);
+      
+      // 🚀 Save message to conversation
+      await saveMessageToConversation(userMsg);
+      await saveMessageToConversation(botMsg);
     } catch (err) {
       console.error("Chat error:", err);
       setMessages((m) => [
@@ -218,10 +221,8 @@ export default function ChatWindow() {
   const handlePdfToggle = (filename) => {
     setSelectedPdfs(prev => {
       if (prev.includes(filename)) {
-        // Remove if already selected
         return prev.filter(f => f !== filename);
       } else {
-        // Add if not selected
         return [...prev, filename];
       }
     });
@@ -230,17 +231,10 @@ export default function ChatWindow() {
   // 🚀 Select/Deselect all PDFs
   const handleSelectAll = () => {
     if (selectedPdfs.length === pdfs.length) {
-      // Deselect all
       setSelectedPdfs([]);
     } else {
-      // Select all
       setSelectedPdfs(pdfs.map(pdf => pdf.filename));
     }
-  };
-
-  const handlePdfChange = (e) => {
-    setSelectedPdf(e.target.value);
-    console.log(`🎯 Selected: ${e.target.value === "all" ? "All Documents" : e.target.value}`);
   };
 
   // Expose functions for ConversationHistory component
@@ -254,7 +248,7 @@ export default function ChatWindow() {
     };
   }, []);
 
-  // Function to refresh PDF list (call this from FileUploader)
+  // Function to refresh PDF list
   const refreshPdfList = () => {
     fetchUploadedPdfs();
   };
@@ -312,7 +306,7 @@ export default function ChatWindow() {
             <button
               onClick={() => {
                 setCrossRefMode(!crossRefMode);
-                if (!crossRefMode) setCompareMode(false); // Disable compare when enabling cross-ref
+                if (!crossRefMode) setCompareMode(false);
               }}
               className={`text-xs px-3 py-1 rounded-lg transition-colors ${
                 crossRefMode 
@@ -327,7 +321,7 @@ export default function ChatWindow() {
             <button
               onClick={() => {
                 setCompareMode(!compareMode);
-                if (!compareMode) setCrossRefMode(false); // Disable cross-ref when enabling compare
+                if (!compareMode) setCrossRefMode(false);
               }}
               disabled={selectedPdfs.length < 2}
               className={`text-xs px-3 py-1 rounded-lg transition-colors ${
@@ -481,84 +475,82 @@ export default function ChatWindow() {
               {/* Regular message content continues... */}
               {m.sender === "bot" && !m.crossReference && (
                 <>
-              {/* 🚀 Citations Display */}
-              {m.citations && showCitations && m.citations.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-gray-300">
-                  <div className="text-sm font-semibold mb-2 text-blue-700 flex items-center gap-2">
-                    🔗 References & Citations
-                    <span className="text-xs font-normal text-gray-600">
-                      ({m.citations.length} source{m.citations.length > 1 ? 's' : ''})
-                    </span>
-                  </div>
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {m.citations.map((citation, idx) => (
-                      <div key={idx} className="p-2 bg-blue-50 rounded border border-blue-200">
-                        <div className="flex items-start gap-2">
-                          <div className="bg-blue-600 text-white text-xs font-bold rounded px-2 py-1 min-w-[28px] text-center">
-                            [{citation.id}]
-                          </div>
-                          <div className="flex-1">
-                            <div className="font-medium text-xs text-blue-800 mb-1">
-                              📄 {citation.source}
-                            </div>
-                            <div className="text-xs text-gray-600 mb-1">
-                              📍 Section {citation.chunk_index} of {citation.total_chunks}
-                              {citation.keywords && citation.keywords !== 'N/A' && (
-                                <span className="ml-2">
-                                  🏷️ {citation.keywords.split(',').slice(0, 3).join(', ')}
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-xs text-gray-700 italic bg-white p-2 rounded">
-                              "{citation.text_preview}"
-                            </div>
-                            {citation.confidence && (
-                              <div className="text-xs text-gray-500 mt-1">
-                                ⭐ Relevance: {(citation.confidence * 100).toFixed(1)}%
+                  {/* 🚀 Citations Display */}
+                  {m.citations && showCitations && m.citations.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-gray-300">
+                      <div className="text-sm font-semibold mb-2 text-blue-700 flex items-center gap-2">
+                        🔗 References & Citations
+                        <span className="text-xs font-normal text-gray-600">
+                          ({m.citations.length} source{m.citations.length > 1 ? 's' : ''})
+                        </span>
+                      </div>
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {m.citations.map((citation, idx) => (
+                          <div key={idx} className="p-2 bg-blue-50 rounded border border-blue-200">
+                            <div className="flex items-start gap-2">
+                              <div className="bg-blue-600 text-white text-xs font-bold rounded px-2 py-1 min-w-[28px] text-center">
+                                [{citation.id}]
                               </div>
-                            )}
+                              <div className="flex-1">
+                                <div className="font-medium text-xs text-blue-800 mb-1">
+                                  📄 {citation.source}
+                                </div>
+                                <div className="text-xs text-gray-600 mb-1">
+                                  📍 Section {citation.chunk_index} of {citation.total_chunks}
+                                  {citation.keywords && citation.keywords !== 'N/A' && (
+                                    <span className="ml-2">
+                                      🏷️ {citation.keywords.split(',').slice(0, 3).join(', ')}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-700 italic bg-white p-2 rounded">
+                                  "{citation.text_preview}"
+                                </div>
+                                {citation.confidence && (
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    ⭐ Relevance: {(citation.confidence * 100).toFixed(1)}%
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                        </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  <div className="mt-2 text-xs text-gray-600 italic">
-                    💡 Click citation numbers [1], [2], etc. in the answer to see full context
-                  </div>
-                </div>
-              )}
-              
-              {/* 🚀 Comparison Data Display */}
-              {m.sender === "bot" && m.comparison && (
-                <div className="mt-3 pt-3 border-t border-gray-300">
-                  <div className="text-sm font-semibold mb-2 text-purple-700">
-                    📊 Detailed Comparison:
-                  </div>
-                  {m.comparison.map((item, idx) => (
-                    <div key={idx} className="mb-2 p-2 bg-gray-100 rounded">
-                      <div className="font-medium text-xs text-blue-600">
-                        📄 {item.source}
+                      <div className="mt-2 text-xs text-gray-600 italic">
+                        💡 Click citation numbers [1], [2], etc. in the answer to see full context
                       </div>
-                      <div className="text-xs mt-1">{item.content}</div>
                     </div>
-                  ))}
-                </div>
-              )}
-              
-              {/* Enhanced bot message info */}
-              {m.confidence !== undefined && (
-                <div className="text-xs opacity-70 mt-2 border-t border-gray-300 pt-2">
+                  )}
+                  
+                  {/* 🚀 Comparison Data Display */}
+                  {m.comparison && (
+                    <div className="mt-3 pt-3 border-t border-gray-300">
+                      <div className="text-sm font-semibold mb-2 text-purple-700">
+                        📊 Detailed Comparison:
+                      </div>
+                      {m.comparison.map((item, idx) => (
+                        <div key={idx} className="mb-2 p-2 bg-gray-100 rounded">
+                          <div className="font-medium text-xs text-blue-600">
+                            📄 {item.source}
+                          </div>
+                          <div className="text-xs mt-1">{item.content}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* Enhanced bot message info */}
                   {m.confidence !== undefined && (
-                    <div>📊 Confidence: {Number(m.confidence).toFixed(3)}</div>
+                    <div className="text-xs opacity-70 mt-2 border-t border-gray-300 pt-2">
+                      <div>📊 Confidence: {Number(m.confidence).toFixed(3)}</div>
+                      {m.searchedIn && (
+                        <div>🔍 Searched in: {m.searchedIn}</div>
+                      )}
+                      {m.sources && m.sources.length > 0 && (
+                        <div>📄 Sources: {m.sources.join(', ')}</div>
+                      )}
+                    </div>
                   )}
-                  {m.searchedIn && (
-                    <div>🔍 Searched in: {m.searchedIn}</div>
-                  )}
-                  {m.sources && m.sources.length > 0 && (
-                    <div>📄 Sources: {m.sources.join(', ')}</div>
-                  )}
-                </div>
-              )}
                 </>
               )}
             </div>
