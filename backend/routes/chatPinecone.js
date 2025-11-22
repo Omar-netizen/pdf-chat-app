@@ -1,11 +1,9 @@
-// 🚀 NEW: Generate comparison response for multiple PDFs
-async function generateComparisonResponse(query, matchesBySource) {// 🚀 NEW: Generate AI response using retrieved context
-async function generateAIResponse(query, contextChunks) {// backend/routes/chat-pinecone.js
+// backend/routes/chat-pinecone.js
 const express = require("express");
 const router = express.Router();
 const { initPinecone } = require("../pinecone");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { protect } = require("../middleware/auth"); // 🚀 Import auth middleware
+const { protect } = require("../middleware/auth");
 
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -23,7 +21,7 @@ async function generateEmbedding(text) {
   return embedding;
 }
 
-// 🚀 NEW: Generate response with detailed citations
+// 🚀 Generate response with detailed citations
 async function generateResponseWithCitations(query, contextChunks) {
   try {
     const models = ["gemini-1.5-flash-8b", "gemini-1.5-pro", "gemini-pro"];
@@ -82,13 +80,16 @@ ANSWER WITH CITATIONS:`;
     throw error;
   }
 }
+
+// 🚀 Generate comparison response for multiple PDFs
+async function generateComparisonResponse(query, matchesBySource) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-8b" });
 
     // Organize context by source
     const sourceContexts = Object.entries(matchesBySource).map(([source, matches]) => {
       const context = matches
-        .slice(0, 3) // Top 3 chunks per source
+        .slice(0, 3)
         .map(m => m.metadata.text)
         .join('\n');
       return `**${source}**:\n${context}`;
@@ -123,75 +124,12 @@ COMPARISON ANALYSIS:`;
     throw error;
   }
 }
-  try {
-    // Try different models in order of preference
-    const models = [
-      "gemini-1.5-flash-8b",
-      "gemini-1.5-pro", 
-      "gemini-pro"
-    ];
-
-    let aiResponse;
-    let modelUsed;
-
-    for (const modelName of models) {
-      try {
-        console.log(`🔄 Trying model: ${modelName}`);
-        const model = genAI.getGenerativeModel({ model: modelName });
-
-        // Prepare context from retrieved chunks
-        const context = contextChunks
-          .map((chunk, idx) => `[Source ${idx + 1}]: ${chunk.metadata.text}`)
-          .join('\n\n');
-
-        // Create a detailed prompt for better responses
-        const prompt = `You are a helpful AI assistant that answers questions based on provided context from PDF documents.
-
-CONTEXT FROM DOCUMENTS:
-${context}
-
-USER QUESTION: ${query}
-
-INSTRUCTIONS:
-- Answer the question using ONLY the information provided in the context above
-- Be conversational and natural in your response
-- If the context contains the answer, provide a clear and helpful response
-- If the context doesn't contain enough information to answer the question, say so politely
-- Mention which source(s) you're referencing when relevant
-- Keep your response concise but informative
-
-ANSWER:`;
-
-        const result = await model.generateContent(prompt);
-        aiResponse = result.response.text();
-        modelUsed = modelName;
-        break; // Success, exit the loop
-
-      } catch (modelError) {
-        console.log(`❌ ${modelName} failed: ${modelError.message}`);
-        continue; // Try next model
-      }
-    }
-
-    if (!aiResponse) {
-      throw new Error('All Gemini models are currently unavailable');
-    }
-    
-    console.log(`🤖 Generated AI response using ${modelUsed}: ${aiResponse.substring(0, 100)}...`);
-    return aiResponse;
-
-  } catch (error) {
-    console.error('❌ Error generating AI response:', error);
-    throw error;
-  }
-}
 
 // 🚀 QUERY EXPANSION - Generate multiple search variations
 function expandQuery(query) {
   const originalQuery = query.toLowerCase().trim();
   const expansions = [originalQuery];
   
-  // Add variations
   if (originalQuery.includes('what is')) {
     expansions.push(originalQuery.replace('what is', '').trim());
     expansions.push(originalQuery.replace('what is', 'define').trim());
@@ -202,13 +140,12 @@ function expandQuery(query) {
     expansions.push(originalQuery.replace('how to', 'tutorial').trim());
   }
   
-  // Add keyword extraction
   const keywords = originalQuery.split(' ').filter(word => word.length > 2);
   if (keywords.length > 1) {
     expansions.push(keywords.join(' '));
   }
   
-  return [...new Set(expansions)]; // Remove duplicates
+  return [...new Set(expansions)];
 }
 
 // 🚀 SEMANTIC RERANKING based on query relevance
@@ -222,20 +159,16 @@ function reRankResults(query, matches) {
     
     let relevanceBoost = 0;
     
-    // Boost for exact phrase matches
     if (text.includes(queryLower)) {
       relevanceBoost += 0.2;
     }
     
-    // Boost for individual word matches
     const wordMatches = queryWords.filter(word => text.includes(word)).length;
     relevanceBoost += (wordMatches / queryWords.length) * 0.15;
     
-    // Boost for keyword matches
     const keywordMatches = queryWords.filter(word => keywords.includes(word)).length;
     relevanceBoost += (keywordMatches / queryWords.length) * 0.1;
     
-    // Boost for content type relevance
     if (queryLower.includes('how') && match.metadata.content_type === 'tutorial') {
       relevanceBoost += 0.1;
     }
@@ -255,10 +188,9 @@ function reRankResults(query, matches) {
 // POST /api/chat-pinecone - 🚀 NOW PROTECTED WITH AUTH
 router.post("/", protect, async (req, res) => {
   try {
-    const { query, source_filters } = req.body; // 🚀 Changed to source_filters (array)
+    const { query, source_filters, compare_mode } = req.body;
     if (!query) return res.status(400).json({ error: "Query required" });
 
-    // 🚀 Multi-PDF search capability
     const searchScope = source_filters && source_filters.length > 0
       ? `${source_filters.length} selected PDF${source_filters.length > 1 ? 's' : ''}`
       : `All your documents`;
@@ -270,24 +202,20 @@ router.post("/", protect, async (req, res) => {
       console.log(`📄 Selected PDFs: ${source_filters.join(', ')}`);
     }
 
-    // 🚀 Query expansion for better matching
     const expandedQueries = expandQuery(query);
     console.log(`📝 Expanded queries: ${expandedQueries.join(', ')}`);
 
     const index = await initPinecone();
     let allMatches = [];
 
-    // 🚀 Build filter for USER-SPECIFIC + MULTI-PDF search
     const searchFilter = { 
-      user_id: req.user.id // 🚀 ALWAYS FILTER BY USER
+      user_id: req.user.id
     };
 
-    // 🚀 Add multi-PDF filter if specific PDFs are selected
     if (source_filters && source_filters.length > 0) {
-      searchFilter.source = { $in: source_filters }; // Pinecone $in operator for multiple values
+      searchFilter.source = { $in: source_filters };
     }
     
-    // Search with multiple query variations
     for (const expandedQuery of expandedQueries.slice(0, 2)) {
       try {
         const queryEmbedding = await generateEmbedding(expandedQuery);
@@ -306,7 +234,6 @@ router.post("/", protect, async (req, res) => {
       }
     }
 
-    // Remove duplicates based on ID
     const uniqueMatches = allMatches.filter((match, index, self) => 
       index === self.findIndex(m => m.id === match.id)
     );
@@ -328,20 +255,17 @@ router.post("/", protect, async (req, res) => {
       });
     }
 
-    // 🚀 Semantic reranking
     const rerankedMatches = reRankResults(query, uniqueMatches);
     
-    // Log top scores for debugging
     console.log('🎯 Top 3 matches after reranking:');
     rerankedMatches.slice(0, 3).forEach((match, idx) => {
       console.log(`${idx + 1}. Score: ${match.adjustedScore.toFixed(3)} (orig: ${match.originalScore.toFixed(3)}, boost: +${match.relevanceBoost.toFixed(3)})`);
       console.log(`   Text: ${match.metadata.text.substring(0, 100)}...`);
     });
 
-    // 🚀 Get top relevant chunks for AI processing
     const topRelevantChunks = rerankedMatches
       .filter(match => match.adjustedScore > 0.3)
-      .slice(0, compare_mode ? 15 : 3); // More chunks for comparison mode
+      .slice(0, compare_mode ? 15 : 3);
 
     if (topRelevantChunks.length === 0) {
       return res.json({
@@ -352,11 +276,10 @@ router.post("/", protect, async (req, res) => {
       });
     }
 
-    // 🚀 COMPARE MODE: Generate comparison between documents
+    // 🚀 COMPARE MODE
     if (compare_mode && source_filters && source_filters.length >= 2) {
       console.log('⚖️ Compare mode activated - generating comparison...');
       
-      // Group matches by source document
       const matchesBySource = {};
       topRelevantChunks.forEach(match => {
         const source = match.metadata.source;
@@ -371,7 +294,6 @@ router.post("/", protect, async (req, res) => {
       try {
         const comparisonResponse = await generateComparisonResponse(query, matchesBySource);
         
-        // Create comparison breakdown
         const comparisonData = Object.entries(matchesBySource).map(([source, matches]) => ({
           source: source,
           content: matches[0].metadata.text.substring(0, 200) + '...',
@@ -392,31 +314,51 @@ router.post("/", protect, async (req, res) => {
 
       } catch (compareError) {
         console.log('⚠️ Comparison generation failed, falling back to normal mode');
-        // Fall through to normal mode
       }
     }
 
-    // 🚀 Generate AI response using the retrieved context (Normal Mode)
-    console.log('🤖 Generating normal AI response...');
+    // 🚀 Normal Mode with Citations
+    console.log('🤖 Generating AI response with citations...');
     let aiResponse;
     let responseType = 'ai_generated';
+    let citations = [];
 
     try {
-      aiResponse = await generateAIResponse(query, topRelevantChunks);
+      aiResponse = await generateResponseWithCitations(query, topRelevantChunks);
+      
+      citations = topRelevantChunks.map((chunk, idx) => ({
+        id: idx + 1,
+        source: chunk.metadata.source,
+        chunk_index: chunk.metadata.chunk_index + 1,
+        total_chunks: chunk.metadata.total_chunks,
+        text_preview: chunk.metadata.text.substring(0, 150) + '...',
+        confidence: chunk.adjustedScore.toFixed(3),
+        keywords: chunk.metadata.keywords || 'N/A',
+        content_type: chunk.metadata.content_type || 'general'
+      }));
+
     } catch (aiError) {
       console.log('⚠️ AI generation failed, falling back to context summary');
-      // Fallback: Return a structured context summary
       aiResponse = `Based on your documents, here's what I found:\n\n${topRelevantChunks
-        .map((chunk, idx) => `**Source ${idx + 1}:** ${chunk.metadata.text.substring(0, 300)}...`)
+        .map((chunk, idx) => `[${idx + 1}] **${chunk.metadata.source}:** ${chunk.metadata.text.substring(0, 300)}...`)
         .join('\n\n')}`;
       responseType = 'context_fallback';
+      
+      citations = topRelevantChunks.map((chunk, idx) => ({
+        id: idx + 1,
+        source: chunk.metadata.source,
+        chunk_index: chunk.metadata.chunk_index + 1,
+        total_chunks: chunk.metadata.total_chunks,
+        text_preview: chunk.metadata.text.substring(0, 150) + '...',
+        confidence: chunk.adjustedScore.toFixed(3)
+      }));
     }
 
     res.json({
       answer: aiResponse,
       confidence: topRelevantChunks[0].adjustedScore,
       sources: [...new Set(topRelevantChunks.map(m => m.metadata.source))],
-      citations: citations, // 🚀 Detailed citation information
+      citations: citations,
       type: responseType,
       context_chunks_used: topRelevantChunks.length,
       searched_in: searchScope,
