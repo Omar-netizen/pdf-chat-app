@@ -31,7 +31,7 @@ async function generateEmbedding(text) {
 
 // 🚀 IMPROVED: Generate natural AI response with better error handling
 async function generateAIResponse(query, contextChunks, options = {}) {
-  const { compareMode = false, crossRefMode = false } = options;
+  const { compareMode = false } = options;
   
   // Use FULL text from chunks, not truncated
   const context = contextChunks
@@ -51,24 +51,7 @@ ${fullText}`;
   // 🎯 Intelligent prompt based on query type
   let prompt;
   
-  if (crossRefMode) {
-    prompt = `You are an AI assistant helping users find ALL mentions of specific keywords across their documents.
-
-CONTEXT FROM DOCUMENTS:
-${context}
-
-USER'S KEYWORD SEARCH: "${query}"
-
-INSTRUCTIONS:
-- List ALL sections from the documents that mention or relate to "${query}"
-- For each mention, specify which document and section it's from
-- Quote or summarize the relevant text for each mention
-- Organize by document, then by relevance
-- If the keyword appears in different contexts, explain each context
-- Be comprehensive - don't skip any relevant mentions
-
-YOUR RESPONSE:`;
-  } else if (compareMode) {
+  if (compareMode) {
     prompt = `You are an AI assistant specialized in comparing information across multiple documents.
 
 CONTEXT FROM MULTIPLE DOCUMENTS:
@@ -134,12 +117,10 @@ INSTRUCTIONS:
 YOUR ANSWER:`;
   }
 
-  // 🚀 FIX: Use correct model names and API setup
+  // 🚀 FIX: Use ONLY working model names (removed gemini-pro - it's deprecated)
   const models = [
     "gemini-1.5-flash-8b",
-    "gemini-1.5-flash", 
-    "gemini-1.5-pro-latest",
-    "gemini-pro"
+    "gemini-1.5-flash"
   ];
 
   let lastError = null;
@@ -349,19 +330,29 @@ function reRankResults(query, matches) {
   }).sort((a, b) => b.adjustedScore - a.adjustedScore);
 }
 
-// POST /api/chat-pinecone - 🚀 PROTECTED WITH AUTH
+// 🚀 REMOVE cross-reference code from chatPinecone.js - use dedicated endpoint instead
+// This simplifies the code and prevents conflicts
+
+// POST /api/chat-pinecone - 🚀 PROTECTED WITH AUTH (NORMAL & COMPARE MODE ONLY)
 router.post("/", protect, async (req, res) => {
   try {
-    const { query, source_filters, compare_mode, cross_ref_mode } = req.body;
+    const { query, source_filters, compare_mode } = req.body;
+    
+    // 🚨 IMPORTANT: Reject cross-reference requests - use /api/cross-reference instead
+    if (req.body.cross_ref_mode) {
+      return res.status(400).json({
+        error: "For cross-reference searches, use the /api/cross-reference endpoint instead",
+        hint: "This endpoint handles normal queries and comparisons only"
+      });
+    }
+    
     if (!query) return res.status(400).json({ error: "Query required" });
 
     const searchScope = source_filters && source_filters.length > 0
       ? `${source_filters.length} selected PDF${source_filters.length > 1 ? 's' : ''}`
       : `All your documents`;
     
-    let modeLabel = '🔍 Searching';
-    if (compare_mode) modeLabel = '⚖️ Comparing';
-    if (cross_ref_mode) modeLabel = '🔗 Cross-Referencing';
+    const modeLabel = compare_mode ? '⚖️ Comparing' : '🔍 Searching';
     
     console.log(`${modeLabel} for user ${req.user.email} in ${searchScope} for: "${query}"`);
     
@@ -390,7 +381,7 @@ router.post("/", protect, async (req, res) => {
         
         const queryResponse = await index.query({
           vector: queryEmbedding,
-          topK: cross_ref_mode ? 50 : 15, // More results for cross-reference
+          topK: compare_mode ? 20 : 10,
           includeMetadata: true,
           filter: searchFilter
         });
@@ -433,32 +424,6 @@ router.post("/", protect, async (req, res) => {
       console.log(`   Preview: ${match.metadata.text.substring(0, 100)}...`);
     });
 
-    // 🚀 CROSS-REFERENCE MODE - Return all mentions
-    if (cross_ref_mode) {
-      console.log('🔗 Cross-reference mode activated');
-      
-      const relevantMatches = rerankedMatches.filter(m => m.adjustedScore > 0.25);
-      
-      if (relevantMatches.length === 0) {
-        return res.json({
-          answer: `No mentions of "${query}" found in your selected documents.`,
-          confidence: 0,
-          type: 'cross_reference',
-          searched_in: searchScope
-        });
-      }
-
-      const crossRefData = await generateCrossReferenceResponse(query, relevantMatches);
-      
-      return res.json({
-        type: 'cross_reference',
-        crossReference: crossRefData,
-        confidence: relevantMatches[0].adjustedScore,
-        searched_in: searchScope,
-        selected_pdfs: source_filters || []
-      });
-    }
-
     // Filter by relevance threshold
     const topRelevantChunks = rerankedMatches
       .filter(match => match.adjustedScore > 0.25) // Lowered threshold for better recall
@@ -478,8 +443,7 @@ router.post("/", protect, async (req, res) => {
     console.log(`🤖 Generating AI response (${compare_mode ? 'compare' : 'normal'} mode)...`);
     
     const aiResponse = await generateAIResponse(query, topRelevantChunks, {
-      compareMode: compare_mode,
-      crossRefMode: false
+      compareMode: compare_mode
     });
     
     // Build detailed citations
