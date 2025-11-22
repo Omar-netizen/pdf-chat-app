@@ -8,6 +8,14 @@ const { protect } = require("../middleware/auth");
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// 🔍 Validate API key on startup
+if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your-api-key-here') {
+  console.error('⚠️ WARNING: GEMINI_API_KEY not properly configured!');
+  console.error('Please set your Gemini API key in .env file');
+} else {
+  console.log('✅ Gemini API key configured');
+}
+
 // Function to generate embeddings for search queries
 async function generateEmbedding(text) {
   const result = await genAI.getGenerativeModel({ model: "text-embedding-004" })
@@ -37,6 +45,8 @@ async function generateAIResponse(query, contextChunks, options = {}) {
 ${fullText}`;
     })
     .join('\n\n---\n\n');
+
+  console.log(`📝 Context length: ${context.length} chars, ${contextChunks.length} chunks`);
 
   // 🎯 Intelligent prompt based on query type
   let prompt;
@@ -124,33 +134,59 @@ INSTRUCTIONS:
 YOUR ANSWER:`;
   }
 
-  // Try models with detailed error logging
+  // 🚀 FIX: Use correct model names and API setup
   const models = [
-    { name: "gemini-1.5-flash-8b", maxTokens: 8192 },
-    { name: "gemini-1.5-flash", maxTokens: 8192 },
-    { name: "gemini-1.5-pro", maxTokens: 8192 }
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-flash", 
+    "gemini-1.5-pro-latest",
+    "gemini-pro"
   ];
 
   let lastError = null;
 
-  for (const modelConfig of models) {
+  for (const modelName of models) {
     try {
-      console.log(`🤖 Trying ${modelConfig.name}...`);
+      console.log(`🤖 Trying ${modelName}...`);
+      
+      // Create model instance with proper config
       const model = genAI.getGenerativeModel({ 
-        model: modelConfig.name,
-        generationConfig: {
-          maxOutputTokens: modelConfig.maxTokens,
-          temperature: 0.7,
-          topP: 0.9,
-        }
+        model: modelName
       });
       
-      const result = await model.generateContent(prompt);
+      // Generate content with safety settings
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.7,
+          topP: 0.9,
+          topK: 40,
+          maxOutputTokens: 8192,
+        },
+        safetySettings: [
+          {
+            category: "HARM_CATEGORY_HARASSMENT",
+            threshold: "BLOCK_NONE",
+          },
+          {
+            category: "HARM_CATEGORY_HATE_SPEECH",
+            threshold: "BLOCK_NONE",
+          },
+          {
+            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            threshold: "BLOCK_NONE",
+          },
+          {
+            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+            threshold: "BLOCK_NONE",
+          },
+        ]
+      });
+      
       const response = result.response;
       
       // Check if response was blocked
       if (response.promptFeedback?.blockReason) {
-        console.log(`⚠️ ${modelConfig.name} blocked: ${response.promptFeedback.blockReason}`);
+        console.log(`⚠️ ${modelName} blocked: ${response.promptFeedback.blockReason}`);
         lastError = `Content blocked: ${response.promptFeedback.blockReason}`;
         continue;
       }
@@ -158,21 +194,27 @@ YOUR ANSWER:`;
       const text = response.text();
       
       if (!text || text.trim().length === 0) {
-        console.log(`⚠️ ${modelConfig.name} returned empty response`);
+        console.log(`⚠️ ${modelName} returned empty response`);
         lastError = 'Empty response from model';
         continue;
       }
       
-      console.log(`✅ Success with ${modelConfig.name} (${text.length} chars)`);
+      console.log(`✅ Success with ${modelName} (${text.length} chars)`);
       return text;
       
     } catch (error) {
-      console.error(`❌ ${modelConfig.name} failed:`, {
+      console.error(`❌ ${modelName} failed:`, {
         message: error.message,
-        code: error.code,
-        status: error.status
+        name: error.name,
+        status: error.status || 'N/A'
       });
       lastError = error.message;
+      
+      // If model not found, try next one immediately
+      if (error.message?.includes('not found') || error.message?.includes('404')) {
+        console.log(`⏭️ Model ${modelName} not available, trying next...`);
+        continue;
+      }
       continue;
     }
   }
