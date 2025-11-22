@@ -30,6 +30,8 @@ app.use('/api/upload', require('./routes/upload'));
 app.use('/api/uploadpdf', require('./routes/uploadpdf'));
 app.use('/api/chat-pinecone', require('./routes/chatPinecone'));
 app.use('/api/get-uploaded-pdfs', require('./routes/get-pdfs'));
+app.use('/api/cross-reference', require('./routes/cross-reference'));
+app.use('/api/conversations', require('./routes/conversations'));
 
 // Health check
 app.get('/', (req, res) => {

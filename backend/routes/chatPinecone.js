@@ -1,4 +1,6 @@
-// backend/routes/chat-pinecone.js
+// 🚀 NEW: Generate comparison response for multiple PDFs
+async function generateComparisonResponse(query, matchesBySource) {// 🚀 NEW: Generate AI response using retrieved context
+async function generateAIResponse(query, contextChunks) {// backend/routes/chat-pinecone.js
 const express = require("express");
 const router = express.Router();
 const { initPinecone } = require("../pinecone");
@@ -21,8 +23,106 @@ async function generateEmbedding(text) {
   return embedding;
 }
 
-// 🚀 NEW: Generate AI response using retrieved context
-async function generateAIResponse(query, contextChunks) {
+// 🚀 NEW: Generate response with detailed citations
+async function generateResponseWithCitations(query, contextChunks) {
+  try {
+    const models = ["gemini-1.5-flash-8b", "gemini-1.5-pro", "gemini-pro"];
+    let aiResponse;
+    let modelUsed;
+
+    // Prepare context with citation markers
+    const citedContext = contextChunks
+      .map((chunk, idx) => {
+        const citationId = `[${idx + 1}]`;
+        return `${citationId} SOURCE: ${chunk.metadata.source} (Chunk ${chunk.metadata.chunk_index + 1}/${chunk.metadata.total_chunks})\nCONTENT: ${chunk.metadata.text}`;
+      })
+      .join('\n\n---\n\n');
+
+    for (const modelName of models) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+
+        const prompt = `You are a helpful AI assistant that provides detailed answers with proper citations.
+
+CONTEXT FROM DOCUMENTS (with citation IDs):
+${citedContext}
+
+USER QUESTION: ${query}
+
+INSTRUCTIONS:
+- Answer the question using the information provided above
+- When you mention information from a source, include the citation ID like [1], [2], etc.
+- Be specific and cite sources for every claim
+- If information appears in multiple sources, cite all of them like [1][2]
+- Use natural language but ensure citations are included
+- If you can't find relevant information, say so clearly
+
+ANSWER WITH CITATIONS:`;
+
+        const result = await model.generateContent(prompt);
+        aiResponse = result.response.text();
+        modelUsed = modelName;
+        break;
+
+      } catch (modelError) {
+        console.log(`❌ ${modelName} failed:`, modelError.message);
+        continue;
+      }
+    }
+
+    if (!aiResponse) {
+      throw new Error('All models unavailable');
+    }
+
+    console.log(`🤖 Generated cited response using ${modelUsed}`);
+    return aiResponse;
+
+  } catch (error) {
+    console.error('❌ Error generating cited response:', error);
+    throw error;
+  }
+}
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-8b" });
+
+    // Organize context by source
+    const sourceContexts = Object.entries(matchesBySource).map(([source, matches]) => {
+      const context = matches
+        .slice(0, 3) // Top 3 chunks per source
+        .map(m => m.metadata.text)
+        .join('\n');
+      return `**${source}**:\n${context}`;
+    }).join('\n\n---\n\n');
+
+    const prompt = `You are an AI assistant specialized in comparing and contrasting information from multiple documents.
+
+DOCUMENTS TO COMPARE:
+${sourceContexts}
+
+USER QUESTION: ${query}
+
+INSTRUCTIONS:
+- Compare and contrast the information from ALL the documents provided
+- Highlight similarities and differences clearly
+- Use a structured format with bullet points or sections for each document
+- Be specific about which document says what
+- If documents have conflicting information, point it out
+- If a document doesn't mention something, state that clearly
+- Provide a summary of key differences at the end
+
+COMPARISON ANALYSIS:`;
+
+    const result = await model.generateContent(prompt);
+    const aiResponse = result.response.text();
+    
+    console.log(`⚖️ Generated comparison response`);
+    return aiResponse;
+
+  } catch (error) {
+    console.error('❌ Error generating comparison:', error);
+    throw error;
+  }
+}
   try {
     // Try different models in order of preference
     const models = [
@@ -155,12 +255,20 @@ function reRankResults(query, matches) {
 // POST /api/chat-pinecone - 🚀 NOW PROTECTED WITH AUTH
 router.post("/", protect, async (req, res) => {
   try {
-    const { query, source_filter } = req.body;
+    const { query, source_filters } = req.body; // 🚀 Changed to source_filters (array)
     if (!query) return res.status(400).json({ error: "Query required" });
 
-    // 🚀 PDF-specific search capability
-    const searchScope = source_filter ? `PDF: ${source_filter}` : `All your documents`;
-    console.log(`🔍 User ${req.user.email} searching in ${searchScope} for: "${query}"`);
+    // 🚀 Multi-PDF search capability
+    const searchScope = source_filters && source_filters.length > 0
+      ? `${source_filters.length} selected PDF${source_filters.length > 1 ? 's' : ''}`
+      : `All your documents`;
+    
+    const modeLabel = compare_mode ? '⚖️ Comparing' : '🔍 Searching';
+    console.log(`${modeLabel} for user ${req.user.email} in ${searchScope} for: "${query}"`);
+    
+    if (source_filters && source_filters.length > 0) {
+      console.log(`📄 Selected PDFs: ${source_filters.join(', ')}`);
+    }
 
     // 🚀 Query expansion for better matching
     const expandedQueries = expandQuery(query);
@@ -169,11 +277,15 @@ router.post("/", protect, async (req, res) => {
     const index = await initPinecone();
     let allMatches = [];
 
-    // 🚀 Build filter for USER-SPECIFIC + PDF-specific search
+    // 🚀 Build filter for USER-SPECIFIC + MULTI-PDF search
     const searchFilter = { 
-      user_id: req.user.id, // 🚀 ALWAYS FILTER BY USER
-      ...(source_filter && { source: source_filter })
+      user_id: req.user.id // 🚀 ALWAYS FILTER BY USER
     };
+
+    // 🚀 Add multi-PDF filter if specific PDFs are selected
+    if (source_filters && source_filters.length > 0) {
+      searchFilter.source = { $in: source_filters }; // Pinecone $in operator for multiple values
+    }
     
     // Search with multiple query variations
     for (const expandedQuery of expandedQueries.slice(0, 2)) {
@@ -202,8 +314,8 @@ router.post("/", protect, async (req, res) => {
     console.log(`📊 Found ${uniqueMatches.length} unique matches`);
 
     if (uniqueMatches.length === 0) {
-      const noResultsMessage = source_filter 
-        ? `I don't have any information about "${query}" in your PDF "${source_filter}". Make sure you've uploaded this PDF to your account.`
+      const noResultsMessage = source_filters && source_filters.length > 0
+        ? `I don't have any information about "${query}" in your selected PDFs: ${source_filters.join(', ')}. Make sure you've uploaded these PDFs to your account.`
         : "You haven't uploaded any documents yet, or I don't have information about that topic in your uploaded PDFs.";
         
       return res.json({ 
@@ -211,6 +323,7 @@ router.post("/", protect, async (req, res) => {
         confidence: 0,
         type: 'no_matches',
         searched_in: searchScope,
+        selected_pdfs: source_filters || [],
         user: req.user.name
       });
     }
@@ -228,7 +341,7 @@ router.post("/", protect, async (req, res) => {
     // 🚀 Get top relevant chunks for AI processing
     const topRelevantChunks = rerankedMatches
       .filter(match => match.adjustedScore > 0.3)
-      .slice(0, 3); // Use top 3 most relevant chunks
+      .slice(0, compare_mode ? 15 : 3); // More chunks for comparison mode
 
     if (topRelevantChunks.length === 0) {
       return res.json({
@@ -239,8 +352,52 @@ router.post("/", protect, async (req, res) => {
       });
     }
 
-    // 🚀 Generate AI response using the retrieved context
-    console.log('🤖 Generating AI response...');
+    // 🚀 COMPARE MODE: Generate comparison between documents
+    if (compare_mode && source_filters && source_filters.length >= 2) {
+      console.log('⚖️ Compare mode activated - generating comparison...');
+      
+      // Group matches by source document
+      const matchesBySource = {};
+      topRelevantChunks.forEach(match => {
+        const source = match.metadata.source;
+        if (!matchesBySource[source]) {
+          matchesBySource[source] = [];
+        }
+        matchesBySource[source].push(match);
+      });
+
+      console.log(`📊 Comparing data from ${Object.keys(matchesBySource).length} documents`);
+
+      try {
+        const comparisonResponse = await generateComparisonResponse(query, matchesBySource);
+        
+        // Create comparison breakdown
+        const comparisonData = Object.entries(matchesBySource).map(([source, matches]) => ({
+          source: source,
+          content: matches[0].metadata.text.substring(0, 200) + '...',
+          score: matches[0].adjustedScore
+        }));
+
+        return res.json({
+          answer: comparisonResponse,
+          confidence: topRelevantChunks[0].adjustedScore,
+          sources: Object.keys(matchesBySource),
+          type: 'comparison',
+          comparison: comparisonData,
+          context_chunks_used: topRelevantChunks.length,
+          searched_in: searchScope,
+          selected_pdfs: source_filters,
+          compare_mode: true
+        });
+
+      } catch (compareError) {
+        console.log('⚠️ Comparison generation failed, falling back to normal mode');
+        // Fall through to normal mode
+      }
+    }
+
+    // 🚀 Generate AI response using the retrieved context (Normal Mode)
+    console.log('🤖 Generating normal AI response...');
     let aiResponse;
     let responseType = 'ai_generated';
 
@@ -259,13 +416,15 @@ router.post("/", protect, async (req, res) => {
       answer: aiResponse,
       confidence: topRelevantChunks[0].adjustedScore,
       sources: [...new Set(topRelevantChunks.map(m => m.metadata.source))],
+      citations: citations, // 🚀 Detailed citation information
       type: responseType,
       context_chunks_used: topRelevantChunks.length,
       searched_in: searchScope,
+      selected_pdfs: source_filters || [],
       debug: {
         total_matches: uniqueMatches.length,
         expanded_queries: expandedQueries,
-        filter_applied: source_filter || 'none',
+        filter_applied: source_filters && source_filters.length > 0 ? source_filters.join(', ') : 'all documents',
         top_scores: rerankedMatches.slice(0, 3).map(m => ({
           score: m.adjustedScore.toFixed(3),
           boost: m.relevanceBoost.toFixed(3),

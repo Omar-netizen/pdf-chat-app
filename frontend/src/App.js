@@ -1,52 +1,59 @@
 // src/App.js
-import React from 'react';
+import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import AuthPage from './components/AuthPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import ChatWindow from './components/ChatWindow';
 import FileUploader from './components/FileUploader';
+import DashboardStats from './components/DashboardStats';
+import ConversationHistory from './components/ConversationHistory'; // 🚀 Import
 import './App.css';
 
 // Main App Content (protected)
 const AppContent = () => {
+  const [currentConversationId, setCurrentConversationId] = useState(null);
+
+  const handleSelectConversation = (conversationId) => {
+    setCurrentConversationId(conversationId);
+    if (window.chatWindowFunctions) {
+      window.chatWindowFunctions.loadConversation(conversationId);
+    }
+  };
+
+  const handleNewConversation = () => {
+    if (window.chatWindowFunctions) {
+      window.chatWindowFunctions.createNewConversation();
+    }
+  };
+
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
       {/* File Upload Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <FileUploader />
-        
-        {/* Quick Stats Card */}
-        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 shadow-lg">
-          <h2 className="text-lg font-semibold mb-4 text-white">📊 Your Dashboard</h2>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-300">Total PDFs:</span>
-              <span className="text-white font-medium" id="pdf-count">Loading...</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-300">Status:</span>
-              <span className="text-green-400 font-medium">🟢 Ready to chat</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-300">Last upload:</span>
-              <span className="text-gray-400 text-sm">Check chat dropdown</span>
-            </div>
-          </div>
-          
-          <div className="mt-6 p-4 bg-blue-500/20 rounded-lg border border-blue-500/30">
-            <p className="text-blue-200 text-sm">
-              💡 <strong>Tip:</strong> Upload PDFs above, then use the chat below to ask questions about your documents!
-            </p>
-          </div>
+        <DashboardStats />
+      </div>
+
+      {/* Chat Section with History Sidebar */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Conversation History Sidebar */}
+        <div className="lg:col-span-1">
+          <ConversationHistory 
+            onSelectConversation={handleSelectConversation}
+            currentConversationId={currentConversationId}
+            onNewConversation={handleNewConversation}
+          />
+        </div>
+
+        {/* Chat Window */}
+        <div className="lg:col-span-3">
+          <ChatWindow />
         </div>
       </div>
 
-      {/* Chat Section */}
-      <ChatWindow />
-
       {/* Footer */}
       <div className="text-center text-gray-400 text-sm py-4">
-        <p>🤖 AI-powered PDF chatbot with secure user authentication</p>
+        <p>🤖 AI-powered PDF chatbot with conversation history & advanced features</p>
       </div>
     </div>
   );
