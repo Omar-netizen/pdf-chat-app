@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 # 🤖 AI PDF Chatbot
 
 An intelligent chatbot that allows users to upload PDF documents and ask questions about their content using advanced AI and vector search technology.
