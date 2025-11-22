@@ -10,6 +10,11 @@ export default function ChatWindow() {
   const [pdfs, setPdfs] = useState([]);
   const [selectedPdfs, setSelectedPdfs] = useState([]); // 🚀 Changed to array for multi-select
   const [loadingPdfs, setLoadingPdfs] = useState(true);
+  const [currentConversationId, setCurrentConversationId] = useState(null);
+  const [conversationTitle, setConversationTitle] = useState("New Conversation");
+  const [compareMode, setCompareMode] = useState(false);
+  const [crossRefMode, setCrossRefMode] = useState(false);
+  const [showCitations, setShowCitations] = useState(false);
   const listRef = useRef(null);
   
   const { user } = useAuth(); // 🚀 Get user info
