@@ -92,11 +92,8 @@ function findKeywordMatches(text, keyword, variations) {
 
 // 🚀 Generate AI summary of cross-references
 async function generateCrossReferenceSummary(keyword, crossReferences) {
-  const models = [
-    "gemini-1.5-flash-8b",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro-latest"
-  ];
+  // ✅ WORKING MODEL: gemini-2.5-flash
+  const models = ["gemini-2.5-flash", "gemini-1.5-flash"];
 
   // Build context from all mentions
   const context = crossReferences.map(ref => {

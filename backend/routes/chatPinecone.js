@@ -31,8 +31,8 @@ async function generateEmbedding(text) {
 // 🚀 Generate AI response using retrieved context (SIMPLIFIED - WORKING VERSION)
 async function generateAIResponse(query, contextChunks, compareMode = false) {
   try {
-    // Use ONLY working models
-    const models = ["gemini-1.5-flash-8b", "gemini-1.5-flash"];
+    // ✅ WORKING MODEL: gemini-2.5-flash (confirmed working!)
+    const models = ["gemini-2.5-flash", "gemini-1.5-flash"];
 
     let aiResponse;
     let modelUsed;
