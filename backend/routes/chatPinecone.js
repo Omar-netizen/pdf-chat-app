@@ -8,10 +8,9 @@ const { protect } = require("../middleware/auth");
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// 🔍 Validate API key on startup
-if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your-api-key-here') {
-  console.error('⚠️ WARNING: GEMINI_API_KEY not properly configured!');
-  console.error('Please set your Gemini API key in .env file');
+// Validate API key
+if (!process.env.GEMINI_API_KEY) {
+  console.error('⚠️ WARNING: GEMINI_API_KEY not configured!');
 } else {
   console.log('✅ Gemini API key configured');
 }
@@ -29,232 +28,116 @@ async function generateEmbedding(text) {
   return embedding;
 }
 
-// 🚀 IMPROVED: Generate natural AI response with better error handling
-async function generateAIResponse(query, contextChunks, options = {}) {
-  const { compareMode = false } = options;
-  
-  // Use FULL text from chunks, not truncated
-  const context = contextChunks
-    .map((chunk, idx) => {
-      const source = chunk.metadata.source;
-      const chunkNum = chunk.metadata.chunk_index + 1;
-      const totalChunks = chunk.metadata.total_chunks;
-      const fullText = chunk.metadata.text; // FULL TEXT, not substring
-      
-      return `[Document ${idx + 1}: "${source}" - Section ${chunkNum}/${totalChunks}]
-${fullText}`;
-    })
-    .join('\n\n---\n\n');
+// 🚀 Generate AI response using retrieved context (SIMPLIFIED - WORKING VERSION)
+async function generateAIResponse(query, contextChunks, compareMode = false) {
+  try {
+    // Use ONLY working models
+    const models = ["gemini-1.5-flash-8b", "gemini-1.5-flash"];
 
-  console.log(`📝 Context length: ${context.length} chars, ${contextChunks.length} chunks`);
+    let aiResponse;
+    let modelUsed;
 
-  // 🎯 Intelligent prompt based on query type
-  let prompt;
-  
-  if (compareMode) {
-    prompt = `You are an AI assistant specialized in comparing information across multiple documents.
+    for (const modelName of models) {
+      try {
+        console.log(`🤖 Trying model: ${modelName}`);
+        const model = genAI.getGenerativeModel({ model: modelName });
+
+        // Prepare FULL context from retrieved chunks (not truncated!)
+        const context = contextChunks
+          .map((chunk, idx) => {
+            const source = chunk.metadata.source;
+            const chunkNum = chunk.metadata.chunk_index + 1;
+            const fullText = chunk.metadata.text; // FULL TEXT
+            return `[Document ${idx + 1}: "${source}" - Section ${chunkNum}]\n${fullText}`;
+          })
+          .join('\n\n---\n\n');
+
+        // Create intelligent prompt based on mode
+        let prompt;
+        
+        if (compareMode) {
+          prompt = `You are an AI assistant comparing information across multiple documents.
 
 CONTEXT FROM MULTIPLE DOCUMENTS:
-${context}
-
-USER'S COMPARISON QUESTION: ${query}
-
-INSTRUCTIONS:
-- Compare and contrast information from the different documents
-- Clearly identify which document says what
-- Highlight similarities and differences
-- Use clear section headers for each document
-- Point out any conflicting information
-- Summarize key differences at the end
-- Be specific with document names and section references
-
-YOUR COMPARISON ANALYSIS:`;
-  } else {
-    // 🎯 Detect query intent for better responses
-    const queryLower = query.toLowerCase();
-    const isListQuery = queryLower.includes('what are') || 
-                       queryLower.includes('list') || 
-                       queryLower.includes('features') ||
-                       queryLower.includes('bonus');
-    const isHowToQuery = queryLower.includes('how to') || queryLower.includes('how do');
-    const isDefinitionQuery = queryLower.includes('what is') || queryLower.includes('define');
-
-    let responseFormat = '';
-    if (isListQuery) {
-      responseFormat = `
-- Present the information as a clear, organized list
-- Use bullet points or numbered items
-- Include all relevant details from the context
-- Don't miss any items mentioned`;
-    } else if (isHowToQuery) {
-      responseFormat = `
-- Provide step-by-step instructions
-- Be clear and sequential
-- Include any prerequisites or requirements`;
-    } else if (isDefinitionQuery) {
-      responseFormat = `
-- Give a clear, concise definition
-- Explain with examples if available
-- Include any important context`;
-    }
-
-    prompt = `You are a helpful AI assistant answering questions based on the user's PDF documents.
-
-CONTEXT FROM USER'S DOCUMENTS:
 ${context}
 
 USER QUESTION: ${query}
 
 INSTRUCTIONS:
-- Answer the question directly and completely using the context above
+- Compare and contrast the information from ALL documents
+- Clearly state which document says what
+- Highlight key similarities and differences
+- Be specific with document names
+- Provide a summary at the end
+
+YOUR COMPARISON:`;
+        } else {
+          // Detect query type
+          const queryLower = query.toLowerCase();
+          const isListQuery = queryLower.includes('what are') || queryLower.includes('list') || 
+                            queryLower.includes('features') || queryLower.includes('bonus');
+          
+          let instructions = `INSTRUCTIONS:
+- Answer clearly and completely using the context above
 - Use natural, conversational language
-- Cite specific documents and sections when relevant (e.g., "According to [Document Name]...")
-- If the context contains lists, features, or structured information, preserve that structure in your answer
-- Be thorough - include ALL relevant information from the context${responseFormat}
-- If the context doesn't fully answer the question, clearly state what information is missing
-- DO NOT invent information not present in the context
+- Reference specific documents when relevant
+- If context contains the answer, explain it thoroughly
+- If not, say what's missing`;
+
+          if (isListQuery) {
+            instructions += `
+- Present information as a clear, organized list
+- Include ALL relevant items mentioned in the context
+- Use bullet points or numbered format`;
+          }
+
+          prompt = `You are a helpful AI assistant answering questions based on PDF documents.
+
+CONTEXT FROM DOCUMENTS:
+${context}
+
+USER QUESTION: ${query}
+
+${instructions}
 
 YOUR ANSWER:`;
-  }
+        }
 
-  // 🚀 FIX: Use ONLY working model names (removed gemini-pro - it's deprecated)
-  const models = [
-    "gemini-1.5-flash-8b",
-    "gemini-1.5-flash"
-  ];
+        // Simple generateContent call that works!
+        const result = await model.generateContent(prompt);
+        aiResponse = result.response.text();
+        modelUsed = modelName;
+        
+        console.log(`✅ Success with ${modelName} (${aiResponse.length} chars)`);
+        break; // Success!
 
-  let lastError = null;
-
-  for (const modelName of models) {
-    try {
-      console.log(`🤖 Trying ${modelName}...`);
-      
-      // Create model instance with proper config
-      const model = genAI.getGenerativeModel({ 
-        model: modelName
-      });
-      
-      // Generate content with safety settings
-      const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          topP: 0.9,
-          topK: 40,
-          maxOutputTokens: 8192,
-        },
-        safetySettings: [
-          {
-            category: "HARM_CATEGORY_HARASSMENT",
-            threshold: "BLOCK_NONE",
-          },
-          {
-            category: "HARM_CATEGORY_HATE_SPEECH",
-            threshold: "BLOCK_NONE",
-          },
-          {
-            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-            threshold: "BLOCK_NONE",
-          },
-          {
-            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-            threshold: "BLOCK_NONE",
-          },
-        ]
-      });
-      
-      const response = result.response;
-      
-      // Check if response was blocked
-      if (response.promptFeedback?.blockReason) {
-        console.log(`⚠️ ${modelName} blocked: ${response.promptFeedback.blockReason}`);
-        lastError = `Content blocked: ${response.promptFeedback.blockReason}`;
-        continue;
+      } catch (modelError) {
+        console.log(`❌ ${modelName} failed: ${modelError.message}`);
+        continue; // Try next model
       }
-      
-      const text = response.text();
-      
-      if (!text || text.trim().length === 0) {
-        console.log(`⚠️ ${modelName} returned empty response`);
-        lastError = 'Empty response from model';
-        continue;
-      }
-      
-      console.log(`✅ Success with ${modelName} (${text.length} chars)`);
-      return text;
-      
-    } catch (error) {
-      console.error(`❌ ${modelName} failed:`, {
-        message: error.message,
-        name: error.name,
-        status: error.status || 'N/A'
-      });
-      lastError = error.message;
-      
-      // If model not found, try next one immediately
-      if (error.message?.includes('not found') || error.message?.includes('404')) {
-        console.log(`⏭️ Model ${modelName} not available, trying next...`);
-        continue;
-      }
-      continue;
     }
+
+    if (!aiResponse) {
+      // All models failed - return structured fallback
+      console.log('⚠️ All models failed, using fallback');
+      aiResponse = `Based on your documents, here's what I found:\n\n${contextChunks
+        .map((chunk, idx) => `**${chunk.metadata.source}:**\n${chunk.metadata.text}\n`)
+        .join('\n')}`;
+    }
+
+    return aiResponse;
+
+  } catch (error) {
+    console.error('❌ Error generating AI response:', error);
+    throw error;
   }
-
-  // If ALL models fail, return structured fallback with FULL context
-  console.error('🚨 All AI models failed. Last error:', lastError);
-  
-  // Generate intelligent fallback based on context
-  const fallbackAnswer = `I found relevant information in your documents, but I'm having trouble processing it right now. Here's what I found:
-
-${contextChunks.map((chunk, idx) => {
-  const source = chunk.metadata.source;
-  const text = chunk.metadata.text;
-  return `**From "${source}":**
-${text}`;
-}).join('\n\n')}
-
-(Note: AI processing temporarily unavailable - showing raw context. Error: ${lastError})`;
-  
-  return fallbackAnswer;
 }
 
-// 🚀 Cross-Reference Mode - Find all mentions of a keyword
-async function generateCrossReferenceResponse(keyword, matches) {
-  const matchesBySource = {};
-  
-  matches.forEach(match => {
-    const source = match.metadata.source;
-    if (!matchesBySource[source]) {
-      matchesBySource[source] = [];
-    }
-    matchesBySource[source].push(match);
-  });
-
-  const crossReferences = Object.entries(matchesBySource).map(([source, sourceMatches]) => ({
-    source: source,
-    mention_count: sourceMatches.length,
-    mentions: sourceMatches.map(m => ({
-      text: m.metadata.text,
-      chunk_index: m.metadata.chunk_index + 1,
-      total_chunks: m.metadata.total_chunks,
-      score: m.adjustedScore || m.score
-    }))
-  }));
-
-  return {
-    keyword: keyword,
-    total_mentions: matches.length,
-    documents_found: Object.keys(matchesBySource).length,
-    cross_references: crossReferences
-  };
-}
-
-// 🚀 QUERY EXPANSION - Generate multiple search variations
+// 🚀 QUERY EXPANSION
 function expandQuery(query) {
   const originalQuery = query.toLowerCase().trim();
   const expansions = [originalQuery];
   
-  // Remove common question words for keyword extraction
   if (originalQuery.includes('what are')) {
     const extracted = originalQuery.replace('what are', '').replace('the', '').trim();
     if (extracted) expansions.push(extracted);
@@ -262,15 +145,12 @@ function expandQuery(query) {
   
   if (originalQuery.includes('what is')) {
     expansions.push(originalQuery.replace('what is', '').trim());
-    expansions.push(originalQuery.replace('what is', 'define').trim());
   }
   
   if (originalQuery.includes('how to')) {
     expansions.push(originalQuery.replace('how to', 'steps to').trim());
-    expansions.push(originalQuery.replace('how to', 'tutorial').trim());
   }
 
-  // Add just the main keywords
   const keywords = originalQuery
     .replace(/what|are|is|the|how|to|of|for|in|on|with/g, '')
     .split(' ')
@@ -283,7 +163,7 @@ function expandQuery(query) {
   return [...new Set(expansions)].filter(q => q.length > 0);
 }
 
-// 🚀 SEMANTIC RERANKING based on query relevance
+// 🚀 SEMANTIC RERANKING
 function reRankResults(query, matches) {
   const queryLower = query.toLowerCase();
   const queryWords = queryLower.split(' ').filter(word => word.length > 2);
@@ -294,20 +174,16 @@ function reRankResults(query, matches) {
     
     let relevanceBoost = 0;
     
-    // Exact phrase match gets highest boost
     if (text.includes(queryLower)) {
       relevanceBoost += 0.25;
     }
     
-    // Word-by-word matching
     const wordMatches = queryWords.filter(word => text.includes(word)).length;
     relevanceBoost += (wordMatches / queryWords.length) * 0.2;
     
-    // Keyword matching
     const keywordMatches = queryWords.filter(word => keywords.includes(word)).length;
     relevanceBoost += (keywordMatches / queryWords.length) * 0.15;
     
-    // Content type matching
     if (queryLower.includes('how') && match.metadata.content_type === 'tutorial') {
       relevanceBoost += 0.1;
     }
@@ -315,7 +191,7 @@ function reRankResults(query, matches) {
       relevanceBoost += 0.1;
     }
     
-    // Boost for chunks with lists/features (often have bullet points or numbers)
+    // Boost for lists/features
     if ((queryLower.includes('features') || queryLower.includes('list') || queryLower.includes('what are')) &&
         (text.includes('•') || text.includes('-') || /\d+\./.test(text))) {
       relevanceBoost += 0.15;
@@ -330,30 +206,20 @@ function reRankResults(query, matches) {
   }).sort((a, b) => b.adjustedScore - a.adjustedScore);
 }
 
-// 🚀 REMOVE cross-reference code from chatPinecone.js - use dedicated endpoint instead
-// This simplifies the code and prevents conflicts
-
-// POST /api/chat-pinecone - 🚀 PROTECTED WITH AUTH (NORMAL & COMPARE MODE ONLY)
+// POST /api/chat-pinecone - Protected with auth
 router.post("/", protect, async (req, res) => {
   try {
     const { query, source_filters, compare_mode } = req.body;
     
-    // 🚨 IMPORTANT: Reject cross-reference requests - use /api/cross-reference instead
-    if (req.body.cross_ref_mode) {
-      return res.status(400).json({
-        error: "For cross-reference searches, use the /api/cross-reference endpoint instead",
-        hint: "This endpoint handles normal queries and comparisons only"
-      });
+    if (!query) {
+      return res.status(400).json({ error: "Query required" });
     }
-    
-    if (!query) return res.status(400).json({ error: "Query required" });
 
     const searchScope = source_filters && source_filters.length > 0
       ? `${source_filters.length} selected PDF${source_filters.length > 1 ? 's' : ''}`
       : `All your documents`;
     
     const modeLabel = compare_mode ? '⚖️ Comparing' : '🔍 Searching';
-    
     console.log(`${modeLabel} for user ${req.user.email} in ${searchScope} for: "${query}"`);
     
     if (source_filters && source_filters.length > 0) {
@@ -393,7 +259,6 @@ router.post("/", protect, async (req, res) => {
       }
     }
 
-    // Remove duplicates
     const uniqueMatches = allMatches.filter((match, index, self) => 
       index === self.findIndex(m => m.id === match.id)
     );
@@ -402,8 +267,8 @@ router.post("/", protect, async (req, res) => {
 
     if (uniqueMatches.length === 0) {
       const noResultsMessage = source_filters && source_filters.length > 0
-        ? `I don't have any information about "${query}" in your selected PDFs: ${source_filters.join(', ')}. Make sure you've uploaded these PDFs to your account.`
-        : "You haven't uploaded any documents yet, or I don't have information about that topic in your uploaded PDFs.";
+        ? `I don't have any information about "${query}" in your selected PDFs: ${source_filters.join(', ')}.`
+        : "You haven't uploaded any documents yet, or I don't have information about that topic.";
         
       return res.json({ 
         answer: noResultsMessage,
@@ -424,14 +289,13 @@ router.post("/", protect, async (req, res) => {
       console.log(`   Preview: ${match.metadata.text.substring(0, 100)}...`);
     });
 
-    // Filter by relevance threshold
     const topRelevantChunks = rerankedMatches
-      .filter(match => match.adjustedScore > 0.25) // Lowered threshold for better recall
-      .slice(0, compare_mode ? 20 : 5); // More chunks for better context
+      .filter(match => match.adjustedScore > 0.25)
+      .slice(0, compare_mode ? 20 : 5);
 
     if (topRelevantChunks.length === 0) {
       return res.json({
-        answer: "I found some information but it doesn't seem very relevant to your question. Try rephrasing your query or checking if the right documents are selected.",
+        answer: "I found some information but it doesn't seem very relevant. Try rephrasing your query.",
         confidence: rerankedMatches[0]?.adjustedScore || 0,
         type: 'low_relevance',
         searched_in: searchScope,
@@ -439,14 +303,12 @@ router.post("/", protect, async (req, res) => {
       });
     }
 
-    // 🚀 Generate AI Response (works for both compare and normal mode)
+    // 🚀 Generate AI Response
     console.log(`🤖 Generating AI response (${compare_mode ? 'compare' : 'normal'} mode)...`);
     
-    const aiResponse = await generateAIResponse(query, topRelevantChunks, {
-      compareMode: compare_mode
-    });
+    const aiResponse = await generateAIResponse(query, topRelevantChunks, compare_mode);
     
-    // Build detailed citations
+    // Build citations
     const citations = topRelevantChunks.map((chunk, idx) => ({
       id: idx + 1,
       source: chunk.metadata.source,
@@ -458,10 +320,9 @@ router.post("/", protect, async (req, res) => {
       content_type: chunk.metadata.content_type || 'general'
     }));
 
-    // Get unique sources
     const sources = [...new Set(topRelevantChunks.map(m => m.metadata.source))];
 
-    // Build comparison data if in compare mode
+    // Comparison data if in compare mode
     let comparisonData = null;
     if (compare_mode) {
       const matchesBySource = {};
@@ -515,8 +376,7 @@ router.post("/", protect, async (req, res) => {
     console.error("Error stack:", err.stack);
     res.status(500).json({ 
       error: err.message,
-      type: 'server_error',
-      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      type: 'server_error'
     });
   }
 });
