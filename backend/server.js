@@ -14,7 +14,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors({
   origin: [
     'http://localhost:3000', // Local development
-    'https://your-vercel-app.vercel.app' // Your Vercel domain
+    'https://pdf-chat-app-ytli.vercel.app/' // Your Vercel domain
   ],
   credentials: true
 }));
