@@ -69,6 +69,7 @@ INSTRUCTIONS:
 - Highlight key similarities and differences
 - Be specific with document names
 - Provide a summary at the end
+- When stating information from a document, include inline citations like: [SourceName - Section X]
 
 YOUR COMPARISON:`;
         } else {
@@ -82,7 +83,8 @@ YOUR COMPARISON:`;
 - Use natural, conversational language
 - Reference specific documents when relevant
 - If context contains the answer, explain it thoroughly
-- If not, say what's missing`;
+- If not, say what's missing
+- When using information from any chunk/document, add inline citations in this format: [SourceName - Section X]`;
 
           if (isListQuery) {
             instructions += `
