@@ -258,7 +258,7 @@ export default function ChatWindow() {
     window.refreshChatPdfList = refreshPdfList;
     return () => {
       delete window.refreshChatPdfList;
-    };
+    };// eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
