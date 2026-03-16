@@ -8,7 +8,7 @@ async function run() {
 
     // Correctly call the embedContent method directly from the genAI client
     const result = await genAI.getGenerativeModel({
-      model: "embedding-001", // This line is for specifying the model
+      model: "gemini-embedding-001", // This line is for specifying the model
     }).embedContent({
       // 🚨 Correct input format
       content: {
