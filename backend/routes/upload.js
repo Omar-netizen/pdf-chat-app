@@ -9,7 +9,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Function to generate embeddings (768 dimensions)
 async function generateEmbedding(text) {
-  const result = await genAI.getGenerativeModel({ model: "models/embedding-001" })
+  const result = await genAI.getGenerativeModel({ model: "gemini-embedding-001" })
     .embedContent({
       content: { parts: [{ text }] },
       taskType: "RETRIEVAL_DOCUMENT",
