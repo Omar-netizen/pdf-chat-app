@@ -13,7 +13,7 @@ router.get("/", protect, async (req, res) => {
     
     // Query for vectors with PDF metadata FOR THIS USER ONLY
     const queryResponse = await index.query({
-      vector: new Array(768).fill(0.1),
+      vector: new Array(3072).fill(0.1),
       topK: 10000,
       includeMetadata: true,
       filter: { 
