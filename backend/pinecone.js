@@ -37,7 +37,7 @@ async function initPinecone() {
 }
 
 // Helper function to create an index if it doesn't exist
-async function createIndexIfNotExists(indexName, dimension = 768) {
+async function createIndexIfNotExists(indexName, dimension = 3072) {
   try {
     if (!pinecone) {
       pinecone = new Pinecone({
