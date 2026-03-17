@@ -17,7 +17,7 @@ if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your-api-key-
 // Function to generate embeddings
 async function generateEmbedding(text) {
   try {
-    const result = await genAI.getGenerativeModel({ model: "gemini-embedding-001" })
+    const result = await genAI.getGenerativeModel({ model: "models/embedding-001" })
       .embedContent({
         content: { parts: [{ text }] },
         taskType: "RETRIEVAL_QUERY",
